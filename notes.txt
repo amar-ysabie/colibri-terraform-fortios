@@ -1,0 +1,67 @@
+terraform {
+  required_providers {
+    fortios = {
+      source = "fortinetdev/fortios"
+      version = "1.16.0"
+    }
+    netbox = {
+      source  = "e-breuninger/netbox"
+      #version = "~> 3.2.1"
+      version = "~> 3.7.7"
+    }
+    http = {
+      source = "hashicorp/http"
+      version = "3.4.1"
+    }
+  }
+}
+
+provider "fortios" {
+  hostname = "192.168.51.29"
+  token = "QxkgtHNkkQ8fzq0dqbpHNk6y1Hsrxp"
+  insecure = "true"
+  
+}
+
+provider "netbox" {
+  server_url = "http://10.221.185.35:8000"
+  api_token  = "865a8e836cbf95b9bc1ea656b68d34d4597a6a51"
+}
+
+data "http" "networks" {
+  url  = "http://10.221.185.28:8000/v1/network/"
+  method = "GET"
+}
+
+locals {
+  
+  network_data = jsondecode(data.http.networks.body)
+
+  all_name = [for names in local.network_data : names.name]
+  all_url = [for urls in local.network_data : urls.url]
+#   all_iotcustomerid = [for iotCustomerId in local.network_data : names.name]
+#   all_colibrinetworksid = [for colibriNetworkId in local.network_data : names.name]
+#   all_apn = [for apn in local.network_data : apns.apn]
+#   all_operator = [for operator in local.network_data : operators.operator]
+#   all_dns1 = [for dns1 in local.network_data : dns1s.dns1]
+#   all_dns2 = [for dns2s in local.network_data : dns2s.dns2]
+}
+
+# output network {
+#     value = local.all_name
+# }
+
+# output url {
+#     value = local.all_url
+# }
+
+output name {
+    value = jsondecode(tostring(data.http.networks.body))
+}
+
+
+# resource "fortios_firewall_address" "network" {
+#   for_each = jsondecode(tostring(data.http.networks.body)) 
+#     name   = each.value["local.all_name"]
+#     # subnet  = each.value["url"]
+# }

@@ -1,0 +1,194 @@
+terraform {
+  required_providers {
+    fortios = {
+      source = "fortinetdev/fortios"
+      version = "1.16.0"
+    }
+    netbox = {
+      source  = "e-breuninger/netbox"
+      #version = "~> 3.2.1"
+      version = "~> 3.7.7"
+    }
+    http = {
+      source = "hashicorp/http"
+      version = "3.4.1"
+    }
+  }
+}
+
+provider "fortios" {
+  hostname = "192.168.51.29"
+  token = "QxkgtHNkkQ8fzq0dqbpHNk6y1Hsrxp"
+  insecure = "true"
+  
+}
+
+provider "netbox" {
+  server_url = "http://10.221.185.35:8000"
+  api_token  = "865a8e836cbf95b9bc1ea656b68d34d4597a6a51"
+}
+
+
+data "http" "first" {
+  url = "http://10.221.185.28:8000/v1/network/"
+  method = "GET"
+  request_headers = { Accept = "application/json" }
+}
+
+locals {
+  network_list     = jsondecode(data.http.first.response_body)
+  colibriNetworkId  = sort([for x in local.network_list : x.colibriNetworkId])
+  url_first         = [for x in local.network_list : x.url]
+  combined_network_data = {
+    for x, network in local.network_list : x => {
+      apn              = network.apn
+      colibriNetworkId = network.colibriNetworkId
+      dns1             = network.dns1
+      dns2             = network.dns2
+      iotCustomerId    = network.iotCustomerId
+      name             = network.name
+      operator         = network.operator
+      url              = network.url
+    }
+  }
+}
+
+data "http" "second" {
+  for_each = toset(local.url_first)
+  url      = each.value
+  method   = "GET"
+  request_headers = { Accept = "application/json" }
+}
+
+locals {
+  network_instance = {
+    for url, response in data.http.second : url => jsondecode(response.body)
+  }
+  url_second = [for x in local.network_instance : x.url]
+}
+
+data "http" "third" {
+  for_each = toset(local.url_second)
+  url      = each.value
+  method   = "GET"
+  request_headers = { Accept = "application/json" }
+}
+
+locals {
+  iprange_list = {
+    for url, response in data.http.third : 
+    url => jsondecode(response.body) if try(response.body) != "[]"
+  } 
+  # iprange_list_network = [for k,v in local.iprange_list : k.network]
+  adresses = {
+    for url, x in local.iprange_list : 
+    url => [
+      for x in x :
+      x.network
+    ]
+  }
+  
+  test =  {
+    for url, ipranges in local.iprange_list : url => flatten([for iprange in ipranges : { url = url, iprange = iprange }])
+  }
+
+ individual_iprange_list = flatten([
+    for url, ipranges in local.iprange_list : [
+      for iprange in ipranges : {
+        key = "${url}${iprange.id}"
+        value = iprange
+      }
+    ]
+  ])
+
+# Create a map of network values to a list of IP ranges with the same network value
+  # network_to_iprange_map = {
+  #   for item in local.individual_iprange_list : item.value.network ...=> [item.value.iprange]
+  # }
+
+  # # Populate the list of IP ranges for each network value
+  # populated_network_to_iprange_map = {
+  #   for item in local.individual_iprange_list : item.value.network => concat(local.network_to_iprange_map[item.value.network], [item.value.iprange])
+  # }
+  # # Create a map of network values to a list of IP ranges with the same network value
+  # network_to_iprange_map = {
+  #   for url, ipranges in local.iprange_list : 
+  #   distinct([for iprange in ipranges : iprange.network]) => [
+  #     for iprange in ipranges : iprange.id
+  #   ]
+  # }
+}
+
+
+resource "fortios_firewall_address" "trname1" {
+  allow_routing = "disable"
+  cache_ttl     = 0
+  color         = 0
+  end_ip        = "255.0.0.0"
+  name          = "1"
+  start_ip      = "12.0.0.0"
+  subnet        = "12.0.0.0 255.0.0.0"
+  type          = "ipmask"
+  visibility    = "enable"
+  wildcard      = "12.0.0.0 255.0.0.0"
+}
+
+
+resource "fortios_firewall_address" "trname2" {
+  allow_routing = "disable"
+  cache_ttl     = 0
+  color         = 0
+  end_ip        = "255.0.0.0"
+  name          = "2"
+  start_ip      = "12.0.0.0"
+  subnet        = "12.0.0.0 255.0.0.0"
+  type          = "ipmask"
+  visibility    = "enable"
+  wildcard      = "12.0.0.0 255.0.0.0"
+}
+locals {
+  virtual_machines = [
+    {
+      ip_address = "10.0.0.1"
+      name       = "vm-1"
+    },
+    {
+      ip_address = "10.0.0.1"
+      name       = "vm-2"
+    }
+  ]
+}    
+
+
+resource "fortios_firewall_addrgrp" "test_group" {
+  for_each = local.virtual_machines
+
+  name = "AddressGroup_${each.key}"
+  member = [
+    for iprange_id in each.value : fortios_firewall_address.test["${each.key}_${iprange_id}"].id
+  ]
+}
+
+# resource "fortios_firewall_address" "test" {
+#   for_each = {
+#     for ipranges in local.individual_iprange_list : ipranges.key => ipranges.value
+#   }
+
+#   name   = "${each.value.network}_${each.value.iprange}"
+#   subnet = each.value.iprange
+# }
+
+# locals {
+#   json_data_1 = local.combined_network_data
+#   json_data_2 = local.network_instance
+#   json_data_3 = local.iprange_list
+
+#   combined_json_data = merge(merge(local.json_data_1, local.json_data_2), local.json_data_3)
+# }
+
+
+# output "combined_network_data" {
+#   value = local.network_to_iprange_map
+# }
+
+  

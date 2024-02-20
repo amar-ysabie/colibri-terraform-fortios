@@ -39,46 +39,6 @@ data "http" "networks" {
 #   network2_data = jsondecode(data.http.networks2.body)
 # }
 
-# Fetch the JSON data using HTTP data source
-data "http" "petstore_available" {
-  url    = "https://petstore.swagger.io/v2/pet/findByStatus?status=available"
-  method = "GET"
-
-  request_headers = { Accept = "application/json" }
-}
-
-locals {
-  response_body = jsondecode(data.http.petstore_available.response_body)
-  ids           = sort([for x in local.response_body : x.id if x.id < 20])
-}
-
-data "http" "petstore_pets" {
-  for_each = toset(local.ids)
-  url      = "https://petstore.swagger.io/v2/pet/${each.value}"
-  method   = "GET"
-
-  request_headers = { Accept = "application/json" }
-}
-
-locals {
-  pets = [
-    for k, v in data.http.petstore_pets : {
-      id     = k
-      name   = jsondecode(v.response_body).name,
-      status = jsondecode(v.response_body).status,
-    } if try(jsondecode(v.response_body).name, "") != ""
-  ]
-
-
-}
-
-
-output "pets" {
-  value = local.pets
-}
-
-
-
 # locals {
 #   filtered_data = [for network in jsondecode(data.http.networks.body) : {
 #     name = network.name
